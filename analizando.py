@@ -1,37 +1,38 @@
+import os
 import sys
 import mmap
+import struct
 
 
 class record:
+    instrumentNo = {
+        0:"lead", 1: "bass", 2: "rythm", # 3
+        4: "6lead", 5: "6base", # 6 - 7
+    }
 
     def __init__(self, bytestring: bytes):
         self.ID = bytestring[:16]
         self.playCount = bytestring[17]
         # the purpose of these bytes is still unknown
-        self.byte1819LE = bytestring[19]*0x100 + bytestring[18]
-        self.scores = []
+        self.byte1918 = struct.unpack('<H', bytestring[18::20])
         self.path = None
+        
 
     def addScore(self, bytestring: bytes):
-        instrument = bytestring[0]
-        nulls = ""
-        if (bytestring[1] + bytestring[6] + bytestring[10] + bytestring[11] +
-            self.byte1819LE) != 0:
+        self.instrument = bytestring[0]
+        self.nullbyte = bytestring[1]
+        self.difficulty = bytestring[2]
+        self.percentage = bytestring[3]
+        self.crown = bool(bytestring[4])
+        self.speed = struct.unpack('<H', bytestring[5::7])
+        self.rank = bytestring[7]
+        self.mods = struct.unpack('<L', bytestring[8::12])
+        self.points = struct.unpack('<L', bytestring[12::16])
 
-            nulls = f"{self.byte1819LE}{bytestring[1]}{bytestring[6]}\
-{bytestring[10]}{bytestring[11]}"
-
-        rank = bytestring[7]
-        mods = bytestring[9]*0x100 + bytestring[8]
-
-        self.scores.append({
-            "instrument": instrument, "nulls": nulls, "rank": rank,
-            "mods": mods
-        })
-
+    # this might be a classmethod
     def getPath(self):
         if self.path:
-            return
+            return ""
 
         with open("songcache.bin", "rb") as fp:
             songcacheMap = mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ)
@@ -40,7 +41,7 @@ class record:
                 self.path = "*SONG NOT FOUND*"
                 return
 
-            # this is unfathomably bad
+            # this is unfathomably bad and unportable
             self.path = ""
             pathAddress = songcacheMap.rfind(b":\\", 0, idAddress) - 1
             while chr(songcacheMap[pathAddress]).isprintable() \
@@ -50,6 +51,8 @@ class record:
                 pathAddress += 1
 
             songcacheMap.close()
+# !!!!!  more recearch must be done on how it's actually interpreted
+# !!!!!  as of now you can split by U+fffd but not in all cases
 
 
 scoredataFile = open("scoredata.bin", "rb")
@@ -72,13 +75,13 @@ while True:
         count_i += 1
         track.addScore(scoredataFile.read(16))
 
-        if ((len(sys.argv) > 1) and (sys.argv[1] == "-a")) or \
-            (track.scores[j]["mods"] not in [1, 8]) or \
-            (track.scores[j]["nulls"]) or (track.scores[j]["instrument"] > 4):
-
-            track.getPath()
-            outputFile.write(f"{track.ID.hex()} {track.scores[j]['instrument']:>5} \
-{track.scores[j]['mods']:>12} {track.scores[j]['nulls']:>7}   {track.path}\n")
+#         if ((len(sys.argv) > 1) and (sys.argv[1] == "-a")) or \
+#             (track.scores[j]["mods"] not in [1, 8]) or \
+#             (track.scores[j]["nulls"]) or (track.scores[j]["instrument"] > 4):
+# 
+#             track.getPath()
+#             outputFile.write(f"{track.ID.hex()} {track.scores[j]['instrument']:>5} \
+# {track.scores[j]['mods']:>12} {track.scores[j]['nulls']:>7}   {track.path}\n")
 
 outputFile.write(f"\n TRACKS: {count_t} ({count_t:X}) \
     SCORES: {count_i} ({count_i:X})")
