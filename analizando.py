@@ -1,13 +1,15 @@
 import os
 import sys
 import mmap
+import json
+import 
 import struct
 
 
 class record:
     instrumentNo = {
         0:"lead", 1: "bass", 2: "rythm", # 3
-        4: "6lead", 5: "6base", # 6 - 7
+        4: "6lead", 5: "6bass", # 6 - 7
     }
 
     def __init__(self, bytestring: bytes):
@@ -29,7 +31,7 @@ class record:
         self.mods = struct.unpack('<L', bytestring[8::12])
         self.points = struct.unpack('<L', bytestring[12::16])
 
-    # this might be a classmethod
+    # this could be a classmethod
     def getPath(self):
         if self.path:
             return ""
@@ -41,18 +43,16 @@ class record:
                 self.path = "*SONG NOT FOUND*"
                 return
 
-            # this is unfathomably bad and unportable
+            # worst case i can trace back to nullbyte b4 prev id and do + 16
+            # as of now it won't work on 2 char windows drives and unix systems
             self.path = ""
             pathAddress = songcacheMap.rfind(b":\\", 0, idAddress) - 1
-            while chr(songcacheMap[pathAddress]).isprintable() \
-                    and (pathAddress < idAddress):
-
-                self.path += chr(songcacheMap[pathAddress])
-                pathAddress += 1
+            pathLength = songcacheMap[pathAddress]
+            
+            for i in range(pathLength):
+                self.path[i] += chr(songcacheMap[pathAddress + i])
 
             songcacheMap.close()
-# !!!!!  more recearch must be done on how it's actually interpreted
-# !!!!!  as of now you can split by U+fffd but not in all cases
 
 
 scoredataFile = open("scoredata.bin", "rb")
