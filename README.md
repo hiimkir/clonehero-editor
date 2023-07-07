@@ -1,4 +1,4 @@
-# Simple permormance graph
+# Simple performance graph
 drop the py file in your `%APPDATA%\..\LocalLow\srylain Inc_` and run it
 
 # Special Thanks
