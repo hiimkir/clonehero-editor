@@ -29,8 +29,9 @@ class Score:
     }
     difficultyNo = ["E", "M", "H", "X"]
 
-    def raiseError(self, frame, err: str) -> None:
-        print(f"{self.ID.hex()} \033[93m line {getframeinfo(frame).lineno} \033[00m {err}")
+    def raiseError(self, frame, err: str = "") -> None:
+        if "-v" in argv:
+            print(f"{self.ID.hex()} \033[93m line {getframeinfo(frame).lineno} \033[00m {err}")
 
     def __init__(self, bytestring: bytes):
 
@@ -38,23 +39,24 @@ class Score:
         self.playCount = bytestring[17]
         # the purpose of these bytes is still unknown
         self.byte1918 = unpack('<H', bytestring[18:20])[0]
-#        self.instrument = -1
-#        self.nullbyte = 0
-#        self.difficulty = -1
-#        self.percentage = -1
-#        self.crown = -1
-#        self.speed = -1
-#        self.rank = -1
-#        self.mods = -1
-#        self.points = -1
+        self.instrument = -1
+        self.nullbyte = 0
+        self.difficulty = -1
+        self.percentage = -1
+        self.crown = -1
+        self.speed = -1
+        self.rank = -1
+        self.mods = -1
+        self.points = -1
 
-        self.path = None  # should work on causality
+        self.path = None
+        self.intensity = -1
 
     def addScore(self, bytestring: bytes) -> None:
 
         self.instrument = bytestring[0]
         self.nullbyte = bytestring[1]
-        self.difficulty = self.difficultyNo[bytestring[2]]
+        self.difficulty = bytestring[2]
         self.percentage = bytestring[3]
         self.crown = bool(bytestring[4])
         self.speed = unpack('<H', bytestring[5:7])[0]
@@ -110,7 +112,7 @@ class Score:
         option = f"diff_{self.instrumentNo[self.instrument]}"
 
         if option not in songProperties[songProperties.sections()[0]]:
-            self.raiseError(currentframe(), "difficulty option not found") # this deserves more research
+            self.raiseError(currentframe(), "difficulty option not found")
             return 9
         
         self.intensity = int(songProperties[songProperties.sections()[0]][option])
@@ -119,12 +121,34 @@ class Score:
         return self.intensity
         
 
-scoredataFile = open("scoredata.bin", "rb")
-outputFile = open("CH_scoredata_telemetry.log", "w")
-outputFile.write(f"""\n HEADER: {scoredataFile.read(4).hex()} \n
- ID                              | Instrument | MOD | Nulls | Path
-------------------------------------------------------------------------\n""")
+def plotter(ordinate: list[list[int]]) -> None:
+    for y, abscissa in reversed(list(enumerate(ordinate))):
+        line = f" {y} |"
+        if len(abscissa) > 0:
+            abscissa.sort()
+            avg = sum(abscissa)//len(abscissa)
+            for i in range(7):
+                line += " "
+                line += str(i) if i == avg else " "
+        print(line)
+    print(f" * | 0   2   4   6")
 
+scoredataFile = open("scoredata.bin", "rb")
+scoredataFile.read(4)
+
+# outputFile = open("CH_scoredata_telemetry.log", "w")
+# outputFile.write(f"""\n HEADER: {scoredataFile.read(4).hex()} \n
+#  ID                              | Instrument | MOD | Nulls | Path
+# ------------------------------------------------------------------------\n""")
+# if "-a" in argv or (track.mods not in [1, 8]) or (track.intensity == -1) or \
+#     (track.instrument not in [0, 1, 4]) or track.byte1918 or track.nullbyte:
+# outputFile.write(f"{track.ID.hex()} {track.instrument:>4} \
+# {track.difficulty} {track.intensity:>2} *{track.rank} {track.mods:>5} \
+# {track.byte1918:>4}-{track.nullbyte:<3}  {track.path}\n")
+# outputFile.close()
+# print("Results saved to CH_scoredata_telemetry.log")
+
+results = [[[], [], [], [], [], [], [], []], [[], [], [], [], [], [], [], []]]
 for i in range(unpack('<L', scoredataFile.read(4))[0]):
     byte = scoredataFile.read(20)
 
@@ -133,15 +157,15 @@ for i in range(unpack('<L', scoredataFile.read(4))[0]):
         track.addScore(scoredataFile.read(16))
         track.getIntensity()
 
-        if ((len(argv) > 1) and (argv[1] == "-a")) or \
-            (track.mods not in [1, 8]) or track.byte1918 or track.nullbyte or \
-            (track.instrument not in [0, 1, 4]) or (track.intensity == -1): 
-
-            outputFile.write(f"{track.ID.hex()} {track.instrument:>4} \
-{track.difficulty} {track.intensity:>2} *{track.rank} {track.mods:>5} \
-{track.byte1918:>4}-{track.nullbyte:<3}  {track.path}\n")
+        if (track.difficulty >= 2) and (track.intensity >= 0):
+            results[track.difficulty-2][track.intensity].append(track.rank)
 
 scoredataFile.close()
-outputFile.close()
 
-print("Results saved to CH_scoredata_telemetry.log")
+print("HARD")
+plotter(results[0])
+print("\nXTREME")
+plotter(results[1])
+
+if "-v" in argv:
+    print("\n", results)
