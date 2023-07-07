@@ -1,87 +1,145 @@
-import sys
+from genericpath import exists
+from sys import argv
 import mmap
+from struct import unpack
+import configparser
+from inspect import currentframe, getframeinfo
 
 
-class record:
+# WIP
+# songcache: 20b header - [uc section # - ul count - [ul len - utf name]] - 
+# - ul count - [
+#    uc pathLen - utf path - 16b (prob links to sections) - uc fileLen - utf chartFile -
+#    - 7 ul - 
+#   ]
+# (sections: title, author, album, genre, year, charter, playlist)
+
+# class Song:
+#     def __init__(self, bytestring: bytes):
+#         self.title = ""
+#         self.ID = None
+#         self.path = ""
+#         self.scores = Score(self.ID)
+
+
+class Score:
+    instrumentNo = {
+        0:"guitar", 1: "bass", 2: "rythm", # 3
+        4: "guitarghl", 5: "bassghl", # 6 - 7
+    }
+    difficultyNo = ["E", "M", "H", "X"]
+
+    def raiseError(self, frame, err: str) -> None:
+        print(f"{self.ID.hex()} \033[93m line {getframeinfo(frame).lineno} \033[00m {err}")
 
     def __init__(self, bytestring: bytes):
+
         self.ID = bytestring[:16]
         self.playCount = bytestring[17]
         # the purpose of these bytes is still unknown
-        self.byte1819LE = bytestring[19]*0x100 + bytestring[18]
-        self.scores = []
-        self.path = None
+        self.byte1918 = unpack('<H', bytestring[18:20])[0]
+#        self.instrument = -1
+#        self.nullbyte = 0
+#        self.difficulty = -1
+#        self.percentage = -1
+#        self.crown = -1
+#        self.speed = -1
+#        self.rank = -1
+#        self.mods = -1
+#        self.points = -1
 
-    def addScore(self, bytestring: bytes):
-        instrument = bytestring[0]
-        nulls = ""
-        if (bytestring[1] + bytestring[6] + bytestring[10] + bytestring[11] +
-            self.byte1819LE) != 0:
+        self.path = None  # should work on causality
 
-            nulls = f"{self.byte1819LE}{bytestring[1]}{bytestring[6]}\
-{bytestring[10]}{bytestring[11]}"
+    def addScore(self, bytestring: bytes) -> None:
 
-        rank = bytestring[7]
-        mods = bytestring[9]*0x100 + bytestring[8]
+        self.instrument = bytestring[0]
+        self.nullbyte = bytestring[1]
+        self.difficulty = self.difficultyNo[bytestring[2]]
+        self.percentage = bytestring[3]
+        self.crown = bool(bytestring[4])
+        self.speed = unpack('<H', bytestring[5:7])[0]
+        self.rank = bytestring[7]
+        self.mods = unpack('<L', bytestring[8:12])[0]
+        self.points = unpack('<L', bytestring[12:16])[0]
 
-        self.scores.append({
-            "instrument": instrument, "nulls": nulls, "rank": rank,
-            "mods": mods
-        })
+        self.intensity = -1
 
-    def getPath(self):
+    # this could be a classmethod
+    # add return value to use it in conditions
+    def getPath(self) -> None:
         if self.path:
+            self.raiseError(currentframe(), "Path already found")
             return
 
         with open("songcache.bin", "rb") as fp:
             songcacheMap = mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ)
             idAddress = songcacheMap.rfind(self.ID)
             if idAddress == -1:
-                self.path = "*SONG NOT FOUND*"
+                self.raiseError(currentframe(), "No songcache.bin entry")
                 return
 
-            # this is unfathomably bad
-            self.path = ""
+            # worst case i can trace back to nullbyte b4 prev id and do + 16
+            # as of now it won't work on 2 char windows drives and unix systems
             pathAddress = songcacheMap.rfind(b":\\", 0, idAddress) - 1
-            while chr(songcacheMap[pathAddress]).isprintable() \
-                    and (pathAddress < idAddress):
-
-                self.path += chr(songcacheMap[pathAddress])
-                pathAddress += 1
+            pathLength = songcacheMap[pathAddress - 1]
+            
+            self.path = songcacheMap[pathAddress:(pathAddress+pathLength)].decode()
 
             songcacheMap.close()
+            return self.path
+    
+    # .sng - https://github.com/mdsitton/SngFileFormat
+    # actually, this should be accessible from songcache.bin
+    def getIntensity(self) -> int | None:
+        self.getPath()
+        if not self.path:
+            self.raiseError(currentframe(), "No path found")
+            return
+        if self.path[-4:] == ".sng":
+            self.raiseError(currentframe(), ".sng support is not yet implemented")
+            return 8
+        if not exists(self.path + "/song.ini"):
+            self.raiseError(currentframe(), "song.ini not found")
+            return
+        if self.instrument not in self.instrumentNo.keys():
+            self.raiseError(currentframe(), "instrument byte unknown value")
+            return
+        
+        songProperties = configparser.ConfigParser()
+        songProperties.read(self.path + "/song.ini")
+        option = f"diff_{self.instrumentNo[self.instrument]}"
 
+        if option not in songProperties[songProperties.sections()[0]]:
+            self.raiseError(currentframe(), "difficulty option not found") # this deserves more research
+            return 9
+        
+        self.intensity = int(songProperties[songProperties.sections()[0]][option])
+        if self.intensity == -1:
+            self.raiseError(currentframe(), "defined as undefined")
+        return self.intensity
+        
 
 scoredataFile = open("scoredata.bin", "rb")
 outputFile = open("CH_scoredata_telemetry.log", "w")
-outputFile.write(f"""\n HEADER: {scoredataFile.read(8).hex()} \n
+outputFile.write(f"""\n HEADER: {scoredataFile.read(4).hex()} \n
  ID                              | Instrument | MOD | Nulls | Path
 ------------------------------------------------------------------------\n""")
 
-count_t = 0
-count_i = 0
-while True:
+for i in range(unpack('<L', scoredataFile.read(4))[0]):
     byte = scoredataFile.read(20)
 
-    if byte == b"":
-        break
-
-    count_t += 1
-    track = record(byte)
+    track = Score(byte)
     for j in range(byte[16]):
-        count_i += 1
         track.addScore(scoredataFile.read(16))
+        track.getIntensity()
 
-        if ((len(sys.argv) > 1) and (sys.argv[1] == "-a")) or \
-            (track.scores[j]["mods"] not in [1, 8]) or \
-            (track.scores[j]["nulls"]) or (track.scores[j]["instrument"] > 4):
+        if ((len(argv) > 1) and (argv[1] == "-a")) or \
+            (track.mods not in [1, 8]) or track.byte1918 or track.nullbyte or \
+            (track.instrument not in [0, 1, 4]) or (track.intensity == -1): 
 
-            track.getPath()
-            outputFile.write(f"{track.ID.hex()} {track.scores[j]['instrument']:>5} \
-{track.scores[j]['mods']:>12} {track.scores[j]['nulls']:>7}   {track.path}\n")
-
-outputFile.write(f"\n TRACKS: {count_t} ({count_t:X}) \
-    SCORES: {count_i} ({count_i:X})")
+            outputFile.write(f"{track.ID.hex()} {track.instrument:>4} \
+{track.difficulty} {track.intensity:>2} *{track.rank} {track.mods:>5} \
+{track.byte1918:>4}-{track.nullbyte:<3}  {track.path}\n")
 
 scoredataFile.close()
 outputFile.close()
