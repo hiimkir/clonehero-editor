@@ -1,3 +1,4 @@
+from doctest import debug
 from genericpath import exists
 from sys import argv
 import mmap
@@ -23,11 +24,11 @@ from inspect import currentframe, getframeinfo
 
 
 class Score:
-    instrumentNo = {
+    INSTRUMENT_NO = {
         0:"guitar", 1: "bass", 2: "rythm", # 3
         4: "guitarghl", 5: "bassghl", # 6 - 7
     }
-    difficultyNo = ["E", "M", "H", "X"]
+    DIFFICULTY_NO = ["E", "M", "H", "X"]
 
     def raiseError(self, frame, err: str = "") -> None:
         if "-v" in argv:
@@ -103,13 +104,13 @@ class Score:
         if not exists(self.path + "/song.ini"):
             self.raiseError(currentframe(), "song.ini not found")
             return
-        if self.instrument not in self.instrumentNo.keys():
+        if self.instrument not in self.INSTRUMENT_NO.keys():
             self.raiseError(currentframe(), "instrument byte unknown value")
             return
         
         songProperties = configparser.ConfigParser()
         songProperties.read(self.path + "/song.ini")
-        option = f"diff_{self.instrumentNo[self.instrument]}"
+        option = f"diff_{self.INSTRUMENT_NO[self.instrument]}"
 
         if option not in songProperties[songProperties.sections()[0]]:
             self.raiseError(currentframe(), "difficulty option not found")
@@ -121,17 +122,23 @@ class Score:
         return self.intensity
         
 
-def plotter(ordinate: list[list[int]]) -> None:
-    for y, abscissa in reversed(list(enumerate(ordinate))):
-        line = f" {y} |"
-        if len(abscissa) > 0:
-            abscissa.sort()
-            avg = sum(abscissa)//len(abscissa)
-            for i in range(7):
-                line += " "
-                line += str(i) if i == avg else " "
+# you actually should color them based on aggregate max freq, not just line by line
+def plotter(ordinates: list[list[int]]) -> None:
+    STYLE_NO = ["\u001b[42m", "\u001b[43m", "\u001b[41m"]
+
+    for y, abscissas in reversed(list(enumerate(ordinates))):
+        line = f" {y} | "
+        if len(abscissas) > 0:
+            z_values = []
+            for x in range(max(abscissas)+1):
+                z_values.append(abscissas.count(x))
+            if "-v" in argv:
+                print(z_values)
+            for z in z_values:
+                style = STYLE_NO[z*(len(STYLE_NO)-1)//max(z_values)] if z > 0 else ""
+                line += f"{style} \u001b[0m"
         print(line)
-    print(f" * | 0   2   4   6")
+    print(f" * | 0 2 4 6")
 
 scoredataFile = open("scoredata.bin", "rb")
 scoredataFile.read(4)
@@ -148,6 +155,8 @@ scoredataFile.read(4)
 # outputFile.close()
 # print("Results saved to CH_scoredata_telemetry.log")
 
+
+# This whole idea is actually incorrect because hit%/rank is disconnected from diff/score
 results = [[[], [], [], [], [], [], [], []], [[], [], [], [], [], [], [], []]]
 for i in range(unpack('<L', scoredataFile.read(4))[0]):
     byte = scoredataFile.read(20)
@@ -157,12 +166,12 @@ for i in range(unpack('<L', scoredataFile.read(4))[0]):
         track.addScore(scoredataFile.read(16))
         track.getIntensity()
 
-        if (track.difficulty >= 2) and (track.intensity >= 0):
+        if (track.difficulty >= 2) and (track.intensity in range(8)):
             results[track.difficulty-2][track.intensity].append(track.rank)
 
 scoredataFile.close()
 
-print("HARD")
+print("\nHARD")
 plotter(results[0])
 print("\nXTREME")
 plotter(results[1])
